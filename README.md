@@ -17,6 +17,12 @@
 修改、仅改号（另有“无变化”）**，给出两版编号、标题与原文片段，可按状态筛选。对照过程不修改
 文档、不写入撤销历史。
 
+还支持**条款摘录（只读）**：在已保存合同的工作台勾选一个或多个条款作为摘录起点，系统沿各条款
+正文中的“第X条”引用**递归收齐**所需条款——循环引用只收录一次，结果按**原文顺序**排列，逐字
+保留各区块字句与编号，**不带入**未被引用的条款及序言，生成可一键复制的纯文本。所选或可达编号
+存在**重复标题**、或可达引用指向**未定义编号**时拒绝生成并标出冲突编号/标题行与引用位置；空选择
+也会给出明确提示。摘录过程不修改正文、不写入撤销历史。
+
 可**撤销**最近一次操作（改号或裁撤，栈式可连续撤销），并**导出**处理后的文本。
 
 技术栈：React + TypeScript（Vite）· Node.js + Express · SQLite（better-sqlite3）· Docker / Compose。
@@ -44,10 +50,11 @@ docker compose up --build
    - 引用了未定义编号 → ❌ 缺失引用；同一编号有多个标题 → 重复编号（标出首次/再次出现的行）。
 3. **条款裁撤（可选）**：见下节“条款裁撤流程”。
 4. **版本对照（可选，只读）**：见下节“版本对照流程”。
-5. **改号映射（可选）**：每行填写旧编号与新编号（正整数）。可点按钮快速生成“交换”或“环形改号”。
-6. **生成预览**：逐处列出“标题/引用、行列位置、改动前后、上下文”，并可展开查看高亮后的全文。
-7. **确认提交**：后端再次校验，通过后在一个事务内写入撤销历史并更新正文，保证原子性。
-8. **撤销 / 导出**：撤销最近一次操作（恢复操作前正文并弹出历史栈顶）；导出当前文本为 `.txt`。
+5. **条款摘录（可选，只读）**：见下节“条款摘录流程”。
+6. **改号映射（可选）**：每行填写旧编号与新编号（正整数）。可点按钮快速生成“交换”或“环形改号”。
+7. **生成预览**：逐处列出“标题/引用、行列位置、改动前后、上下文”，并可展开查看高亮后的全文。
+8. **确认提交**：后端再次校验，通过后在一个事务内写入撤销历史并更新正文，保证原子性。
+9. **撤销 / 导出**：撤销最近一次操作（恢复操作前正文并弹出历史栈顶）；导出当前文本为 `.txt`。
 
 ## 版本对照流程
 
@@ -65,6 +72,34 @@ docker compose up --build
    新增 / 删除 / 内容修改 / 仅改号 / 无变化 / 待确认**筛选**（默认隐藏“无变化”）。
 4. 新稿（及旧稿）若含重复定义或缺失引用，顶部会提示“标题边界可能不唯一”，但不阻断对照。
 5. 整个接口为**只读**：不更新文档正文、不产生撤销历史，随时可重新粘贴生成。
+
+## 条款摘录流程（只读）
+
+1. 工作台已建立（读取**当前已保存**的合同正文）后，在“条款摘录”面板勾选一个或多个条款作为
+   **摘录起点**，点击**生成摘录**。
+2. 系统复用同一套解析与**标题边界**规则切出条款区块，并沿引用图 `引用所在区块 → 被引编号`
+   **递归收齐**：
+   - 起点条款与每一条被其（直接或间接）引用的条款都会收录；
+   - **循环引用**按编号去重，每个条款只收录一次，不会死循环；
+   - 收录结果按区块在**原文中的顺序**排列，逐字拼接各区块切片（保留原字句与“第X条”编号）；
+   - **序言**（首个标题之前）与任何未被引用的条款都不会进入摘录。
+3. 结果区列出收录条款的编号、标题、原文行范围与来源（**勾选起点** / **引用收齐**），
+   并提供可复制的纯文本框与**复制摘录纯文本**按钮。
+4. 整个接口为**只读**：不更新文档正文、不产生撤销历史，可反复勾选生成。
+
+### 摘录拒绝规则（HTTP 409，不产生任何写入）
+
+| 情形 | code | 说明 |
+| --- | --- | --- |
+| 未勾选任何条款（空 `numbers` / 缺字段） | `EMPTY_SELECTION` | 明确提示至少勾选一个起点 |
+| 编号不是正整数 | `INVALID_NUMBER` | 附出错项位置 |
+| 勾选编号在正文中没有标题定义 | `CLAUSE_NOT_DEFINED` | 引用不能作为摘录起点 |
+| 所选或可达编号存在多个标题 | `DUPLICATE_DEFINITION` | 标出冲突编号与每处标题行（行号、标题原文、行列位置） |
+| 可达区块正文引用了未定义编号 | `MISSING_REFERENCE` | 按被引编号聚合，列出每处引用的行/列、所在条款与所在行原文 |
+
+> 范围限定：只有**所选起点或沿引用可达**的编号/引用参与校验；不可达条款即便自身有重复标题或
+> 引用了未定义编号，也不会阻断摘录（且不会被带入结果）。
+
 
 ## 条款裁撤流程
 
@@ -140,6 +175,7 @@ Compose 已把 `/data` 挂载到命名卷 `contract-data`，容器重建后数�
 | GET | `/api/documents/:id` | 获取文档与最新解析 |
 | PUT | `/api/documents/:id` | 手工修改原文（清空撤销栈） |
 | POST | `/api/documents/:id/diff` | 以已保存合同为旧稿、`newContent` 为新稿做版本对照（只读，不写库） |
+| POST | `/api/documents/:id/excerpt` | 条款摘录：从勾选编号沿引用递归收齐，返回可复制纯文本（只读，不写库） |
 | POST | `/api/documents/:id/renumber/preview` | 逐处变更预览（只读，冲突返回 409） |
 | POST | `/api/documents/:id/renumber/commit` | 原子提交改号 |
 | POST | `/api/documents/:id/removal/impact` | 裁撤影响分析：引用图、直接引用与传递影响（只读） |
@@ -156,8 +192,79 @@ Compose 已把 `/data` 挂载到命名卷 `contract-data`，容器重建后数�
 `diff.pairs[]` 每条含 `status` 与 `old`/`new`（单侧缺失为 `null`，条款对象含 `number`、`heading`、
 `headingLine`、`snippet`），`diff.ambiguous[]` 为待确认分组（`reason` 为 `duplicate_content` /
 `duplicate_number`，并列出两侧全部候选）。对照只读，响应不代表任何写入。
+条款摘录请求体：`{ "numbers": [3] }`（正整数数组，可多选；自动去重，字符串数字也接受）。
+成功响应（200）：
+
+```json
+{
+  "selected": [3],
+  "includedNumbers": [1, 2, 3],
+  "blockCount": 3,
+  "blocks": [
+    { "number": 1, "heading": "第一条 总则", "headingLine": 4,
+      "startLine": 4, "endLine": 5, "directlySelected": false,
+      "text": "第一条 总则\n本合同依据相关法律订立。\n\n" }
+  ],
+  "excerptText": "第一条 总则\n……（各区块按原文顺序逐字拼接，不含序言与未引用条款）"
+}
+```
+
+`blocks[].directlySelected` 区分勾选起点（`true`）与沿引用递归收入（`false`）；`excerptText`
+即“可复制的纯文本摘录”。任何拒绝均为 409，外层 `error.code` 为 `EXCERPT_REJECTED`（请求形态）
+或 `EXCERPT_CONFLICT`（语义冲突），明细在 `error.conflicts[]`。
+
+调用示例（先建文档拿到 `id`，再生成摘录）：
+
+```bash
+# 1) 建立工作台文档
+curl -sS -X POST http://localhost:3000/api/documents \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"技术服务合同","content":"第一条 总则\n……\n第二条 定义\n适用第1条。\n"}'
+# -> { "document": { "id": 1, ... }, "analysis": { ... } }
+
+# 2) 以第 2 条为起点生成摘录（自动递归收齐第 1 条）
+curl -sS -X POST http://localhost:3000/api/documents/1/excerpt \
+  -H 'Content-Type: application/json' \
+  -d '{"numbers":[2]}'
+
+# 多起点 + 只取摘录纯文本（依赖 jq）
+curl -sS -X POST http://localhost:3000/api/documents/1/excerpt \
+  -H 'Content-Type: application/json' -d '{"numbers":[2,5]}' | jq -r '.excerptText'
+
+# 空选择 -> HTTP 409
+curl -sS -X POST http://localhost:3000/api/documents/1/excerpt \
+  -H 'Content-Type: application/json' -d '{"numbers":[]}'
+# -> {"error":{"code":"EXCERPT_REJECTED","message":"摘录请求未通过校验，已拒绝生成。",
+#     "conflicts":[{"code":"EMPTY_SELECTION","message":"请至少勾选一个条款作为摘录起点（空选择无法生成摘录）。"}]}}
+```
+
+冲突明细示例（可达引用指向未定义编号）：
+
+```json
+{
+  "error": {
+    "code": "EXCERPT_CONFLICT",
+    "message": "摘录存在冲突，已拒绝生成。",
+    "conflicts": [
+      {
+        "code": "MISSING_REFERENCE",
+        "number": 8,
+        "message": "摘录可达条款引用了未定义的第8条，引用链不完整，已拒绝生成。引用位置（1 处）：\n  · 第 2 行第 2 列，第1条区块内：见第8条。",
+        "references": [
+          { "number": 8,
+            "pos": { "line": 2, "column": 2, "offset": 7 },
+            "line": "见第8条。",
+            "ownerNumber": 1, "ownerHeading": "第一条 甲" }
+        ],
+        "positions": [{ "line": 2, "column": 2, "offset": 7 }]
+      }
+    ]
+  }
+}
+```
+
 撤销响应中的 `undone.op` 为 `"renumber"` 或 `"remove"`（裁撤时另含 `deletes` 与 `replacements`）。
-409 响应示例：
+改号 409 响应示例：
 
 ```json
 {
@@ -190,13 +297,14 @@ Compose 已把 `/data` 挂载到命名卷 `contract-data`，容器重建后数�
 │       ├── parser.ts      # “第X条”解析、定义/引用、缺失与重复检测
 │       ├── renumber.ts    # 映射规范化、冲突校验、单遍重建（交换/环形安全）
 │       ├── removal.ts     # 标题边界区块、引用图、影响分析、裁撤计划与冲突校验
+│       ├── excerpt.ts     # 条款摘录（只读）：沿引用递归收齐、去重、原文顺序拼接与冲突校验
 │       ├── diff.ts        # 版本对照（只读）：标题边界拆分、去编号/规范空白、两轮配对与待确认
 │       ├── db.ts          # SQLite 建表与原子事务（改号/裁撤提交 / 撤销共用）
 │       └── index.ts       # API 与静态资源服务
 └── client/                # React + TypeScript + Vite
     └── src/
-        ├── App.tsx        # 工作台主流程（版本对照 + 改号 + 裁撤）
-        └── components/    # 解析面板、版本对照、映射编辑、裁撤面板/预览、预览、冲突提示、高亮文本
+        ├── App.tsx        # 工作台主流程（版本对照 + 摘录 + 改号 + 裁撤）
+        └── components/    # 解析/摘录/版本对照、映射编辑、裁撤面板/预览、预览、冲突提示、高亮文本
 ```
 
 ## 本地开发（不用 Docker）

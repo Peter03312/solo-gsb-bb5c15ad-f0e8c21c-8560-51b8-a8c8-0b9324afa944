@@ -22,6 +22,7 @@ import {
   type RemovalReplacement,
 } from './removal';
 import { diffVersions } from './diff';
+import { buildExcerpt, normalizeExcerptRequest } from './excerpt';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -293,6 +294,35 @@ app.post('/api/documents/:id/undo', (req, res) => {
       createdAt: undone.created_at,
     },
     analysis: analysisOf(updated.content),
+  });
+});
+
+// ---------- 条款摘录（只读） ----------
+
+// 以勾选条款为起点，沿“第X条”引用递归收齐条款，返回可复制的纯文本摘录。
+// 只读：不写库、不改文档、不触碰撤销历史；空选择/重复标题/未定义引用一律 409。
+app.post('/api/documents/:id/excerpt', (req, res) => {
+  const id = Number(req.params.id);
+  const doc = requireDoc(res, id);
+  if (!doc) return;
+  const { selected, errors } = normalizeExcerptRequest((req.body ?? {}) as { numbers?: unknown });
+  if (errors.length > 0) {
+    return fail(res, 409, 'EXCERPT_REJECTED', '摘录请求未通过校验，已拒绝生成。', {
+      conflicts: errors,
+    });
+  }
+  const result = buildExcerpt(doc.content, selected);
+  if (!result.ok) {
+    return fail(res, 409, 'EXCERPT_CONFLICT', '摘录存在冲突，已拒绝生成。', {
+      conflicts: result.conflicts ?? [],
+    });
+  }
+  res.json({
+    selected: result.selected,
+    includedNumbers: result.includedNumbers,
+    blockCount: result.blockCount,
+    blocks: result.blocks,
+    excerptText: result.excerptText,
   });
 });
 

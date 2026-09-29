@@ -5,6 +5,7 @@ import type {
   CommitResult,
   ConflictError,
   DocumentDTO,
+  ExcerptResult,
   MappingEntry,
   PreviewResult,
   RemovalCommitResult,
@@ -21,6 +22,7 @@ import PreviewPanel from './components/PreviewPanel';
 import RemovalPanel from './components/RemovalPanel';
 import RemovalPreview from './components/RemovalPreview';
 import VersionDiffPanel from './components/VersionDiffPanel';
+import ExcerptPanel from './components/ExcerptPanel';
 import Conflicts from './components/Conflicts';
 import HighlightedText from './components/HighlightedText';
 
@@ -57,6 +59,10 @@ export default function App() {
   const [diffDraft, setDiffDraft] = useState('');
   const [versionDiff, setVersionDiff] = useState<VersionDiff | null>(null);
 
+  // 条款摘录状态（只读）
+  const [excerptResult, setExcerptResult] = useState<ExcerptResult | null>(null);
+  const [excerptConflicts, setExcerptConflicts] = useState<ConflictError[]>([]);
+
   const toMapping = (): MappingEntry[] =>
     rows
       .map((r) => ({ from: Number(r.from), to: Number(r.to) }))
@@ -74,6 +80,8 @@ export default function App() {
     resetRemoval();
     setDiffDraft('');
     setVersionDiff(null);
+    setExcerptResult(null);
+    setExcerptConflicts([]);
   };
 
   const resetRemoval = () => {
@@ -150,6 +158,8 @@ export default function App() {
       setLastUndo(null);
       resetRemoval();
       setVersionDiff(null);
+      setExcerptResult(null);
+      setExcerptConflicts([]);
       setNotice(`已原子提交：共更新 ${result.changeCount} 处“第X条”。可撤销本次操作。`);
     } catch (e) {
       const err = e as ClientError;
@@ -249,6 +259,8 @@ export default function App() {
       setCommitted(null);
       setLastUndo(null);
       setVersionDiff(null);
+      setExcerptResult(null);
+      setExcerptConflicts([]);
       setNotice(
         `已原子裁撤 ${result.deleteCount} 个条款区块，改写 ${result.changeCount} 处引用。可撤销本次操作。`,
       );
@@ -279,6 +291,8 @@ export default function App() {
       setRows(emptyRows());
       resetRemoval();
       setVersionDiff(null);
+      setExcerptResult(null);
+      setExcerptConflicts([]);
       const opText = result.undone.op === 'remove' ? '条款裁撤' : '改号';
       setNotice(
         `已撤销最近一次${opText}（${result.undone.changeCount} 处引用变更，恢复到操作前文本）。`,
@@ -335,6 +349,34 @@ export default function App() {
     }
   };
 
+  // ---------- 条款摘录（只读） ----------
+
+  const doExcerpt = async (numbers: number[]): Promise<ExcerptResult | null> => {
+    if (!doc || numbers.length === 0) return null;
+    setLoading(true);
+    setConflicts([]);
+    setNotice('');
+    setExcerptConflicts([]);
+    try {
+      const result = await api.excerpt(doc.id, numbers);
+      setExcerptResult(result);
+      setNotice(
+        `摘录已生成：起点第 ${result.selected.join('、')} 条，递归收齐共 ${result.blockCount} 个条款（只读，未改动文档）。`,
+      );
+      return result;
+    } catch (e) {
+      const err = e as ClientError;
+      setExcerptResult(null);
+      setExcerptConflicts(
+        err.conflicts.length ? err.conflicts : [{ code: err.code, message: err.message }],
+      );
+      setNotice('摘录已拒绝生成，请按提示修正勾选或先处理原文问题。');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const changedTargets = committed
     ? new Set(committed.changes.map((c) => c.toNumber))
     : null;
@@ -344,7 +386,7 @@ export default function App() {
       <header>
         <h1>合同条款重编号工作台</h1>
         <p className="subtitle">
-          解析“第X条”定义与引用 · 版本对照（新增/删除/修改/仅改号） · 批量映射改号 · 条款裁撤与引用图影响分析 · 逐处预览 · 原子提交 · 可撤销 · 可导出
+          解析“第X条”定义与引用 · 版本对照（新增/删除/修改/仅改号） · 条款摘录（递归收齐引用） · 批量映射改号 · 条款裁撤与引用图影响分析 · 逐处预览 · 原子提交 · 可撤销 · 可导出
         </p>
       </header>
 
@@ -507,7 +549,16 @@ export default function App() {
             </section>
           )}
 
-          <div className="step">5. 改号映射（可选）</div>
+          <div className="step">5. 条款摘录（可选，只读）：勾选起点 → 递归收齐引用条款 → 复制纯文本</div>
+          <ExcerptPanel
+            analysis={analysis}
+            loading={loading}
+            onGenerate={doExcerpt}
+            result={excerptResult}
+            conflicts={excerptConflicts}
+          />
+
+          <div className="step">6. 改号映射（可选）</div>
           <MappingEditor
             analysis={analysis}
             rows={rows}
@@ -536,7 +587,7 @@ export default function App() {
             </section>
           )}
 
-          <div className="step">6. 撤销 / 导出</div>
+          <div className="step">7. 撤销 / 导出</div>
           <section className="card final-bar">
             <button type="button" className="btn" onClick={doUndo} disabled={loading}>
               ↩ 撤销最近一次操作（改号 / 裁撤）

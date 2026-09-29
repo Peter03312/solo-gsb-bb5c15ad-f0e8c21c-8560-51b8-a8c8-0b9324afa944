@@ -248,3 +248,42 @@ export interface VersionDiff {
 export interface VersionDiffResponse {
   diff: VersionDiff;
 }
+
+// ---------- 条款摘录（只读） ----------
+
+export interface ExcerptRefLocation {
+  number: number;
+  pos: TextPos;
+  line: string;
+  ownerNumber: number | null;
+  ownerHeading: string | null;
+}
+
+export interface ExcerptConflict extends ConflictError {
+  code:
+    | 'EMPTY_SELECTION'
+    | 'INVALID_NUMBER'
+    | 'CLAUSE_NOT_DEFINED'
+    | 'DUPLICATE_DEFINITION'
+    | 'MISSING_REFERENCE';
+  headings?: { number: number; heading: string; line: number; pos: TextPos }[];
+  references?: ExcerptRefLocation[];
+}
+
+export interface ExcerptBlock {
+  number: number;
+  heading: string;
+  headingLine: number;
+  startLine: number;
+  endLine: number;
+  text: string;
+  directlySelected: boolean;
+}
+
+export interface ExcerptResult {
+  selected: number[];
+  includedNumbers: number[];
+  blockCount: number;
+  blocks: ExcerptBlock[];
+  excerptText: string;
+}
