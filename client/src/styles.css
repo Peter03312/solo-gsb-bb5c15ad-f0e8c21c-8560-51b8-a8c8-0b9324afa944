@@ -295,6 +295,11 @@ header h1 {
   white-space: nowrap;
 }
 
+.excerpt-chip {
+  background: #e7efff;
+  color: var(--primary);
+}
+
 .ellipsis.inline {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -59,6 +59,8 @@ export interface ConflictError {
   from?: number;
   to?: number;
   positions?: TextPos[];
+  /** 重复标题冲突时给出的各处标题行原文 */
+  headings?: string[];
 }
 
 export interface ChangeItem {
@@ -198,6 +200,28 @@ export interface ApiError {
     message: string;
     conflicts?: ConflictError[];
   };
+}
+
+// ---------- 条款摘录（只读） ----------
+
+export interface ExcerptClause {
+  number: number;
+  heading: string;
+  headingLine: number;
+  startLine: number;
+  endLine: number;
+  /** 是否为勾选的摘录起点（false 表示沿引用链带入） */
+  root: boolean;
+  /** 区块原文（逐字保留） */
+  text: string;
+}
+
+export interface ExcerptResult {
+  roots: number[];
+  clauseCount: number;
+  clauses: ExcerptClause[];
+  /** 按原文顺序拼接的完整摘录纯文本 */
+  text: string;
 }
 
 // ---------- 版本对照 ----------

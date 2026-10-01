@@ -5,6 +5,7 @@ import type {
   CommitResult,
   ConflictError,
   DocumentDTO,
+  ExcerptResult,
   MappingEntry,
   PreviewResult,
   RemovalCommitResult,
@@ -20,6 +21,7 @@ import MappingEditor, { type MappingRow } from './components/MappingEditor';
 import PreviewPanel from './components/PreviewPanel';
 import RemovalPanel from './components/RemovalPanel';
 import RemovalPreview from './components/RemovalPreview';
+import ExcerptPanel from './components/ExcerptPanel';
 import VersionDiffPanel from './components/VersionDiffPanel';
 import Conflicts from './components/Conflicts';
 import HighlightedText from './components/HighlightedText';
@@ -53,6 +55,10 @@ export default function App() {
   const [removePreview, setRemovePreview] = useState<RemovalPreviewResult | null>(null);
   const [removeCommitted, setRemoveCommitted] = useState<RemovalCommitResult | null>(null);
 
+  // 条款摘录状态（只读）
+  const [excerptSelected, setExcerptSelected] = useState<Set<number>>(new Set());
+  const [excerptResult, setExcerptResult] = useState<ExcerptResult | null>(null);
+
   // 版本对照状态（只读）
   const [diffDraft, setDiffDraft] = useState('');
   const [versionDiff, setVersionDiff] = useState<VersionDiff | null>(null);
@@ -72,6 +78,7 @@ export default function App() {
     setConflicts([]);
     setEditing(false);
     resetRemoval();
+    resetExcerpt();
     setDiffDraft('');
     setVersionDiff(null);
   };
@@ -82,6 +89,11 @@ export default function App() {
     setRemoveReplacements([]);
     setRemovePreview(null);
     setRemoveCommitted(null);
+  };
+
+  const resetExcerpt = () => {
+    setExcerptSelected(new Set());
+    setExcerptResult(null);
   };
 
   const parse = async () => {
@@ -149,10 +161,44 @@ export default function App() {
       setRows(emptyRows());
       setLastUndo(null);
       resetRemoval();
+      resetExcerpt();
       setVersionDiff(null);
       setNotice(`已原子提交：共更新 ${result.changeCount} 处“第X条”。可撤销本次操作。`);
     } catch (e) {
       const err = e as ClientError;
+      setConflicts(
+        err.conflicts.length
+          ? err.conflicts
+          : [{ code: err.code, message: err.message }],
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ---------- 条款摘录（只读） ----------
+
+  const changeExcerptSelection = (next: Set<number>) => {
+    setExcerptSelected(next);
+    setExcerptResult(null);
+    setConflicts([]);
+  };
+
+  const doExcerpt = async () => {
+    if (!doc || excerptSelected.size === 0) return;
+    setLoading(true);
+    setConflicts([]);
+    setNotice('');
+    try {
+      const numbers = [...excerptSelected].sort((a, b) => a - b);
+      const result = await api.excerpt(doc.id, numbers);
+      setExcerptResult(result);
+      setNotice(
+        `已生成摘录：起点 ${numbers.map((n) => `第${n}条`).join('、')}，沿引用共收齐 ${result.clauseCount} 个条款（只读，未改动文档）。`,
+      );
+    } catch (e) {
+      const err = e as ClientError;
+      setExcerptResult(null);
       setConflicts(
         err.conflicts.length
           ? err.conflicts
@@ -248,6 +294,7 @@ export default function App() {
       setPreview(null);
       setCommitted(null);
       setLastUndo(null);
+      resetExcerpt();
       setVersionDiff(null);
       setNotice(
         `已原子裁撤 ${result.deleteCount} 个条款区块，改写 ${result.changeCount} 处引用。可撤销本次操作。`,
@@ -278,6 +325,7 @@ export default function App() {
       setPreview(null);
       setRows(emptyRows());
       resetRemoval();
+      resetExcerpt();
       setVersionDiff(null);
       const opText = result.undone.op === 'remove' ? '条款裁撤' : '改号';
       setNotice(
@@ -344,7 +392,7 @@ export default function App() {
       <header>
         <h1>合同条款重编号工作台</h1>
         <p className="subtitle">
-          解析“第X条”定义与引用 · 版本对照（新增/删除/修改/仅改号） · 批量映射改号 · 条款裁撤与引用图影响分析 · 逐处预览 · 原子提交 · 可撤销 · 可导出
+          解析“第X条”定义与引用 · 版本对照（新增/删除/修改/仅改号） · 条款摘录（沿引用递归收齐） · 批量映射改号 · 条款裁撤与引用图影响分析 · 逐处预览 · 原子提交 · 可撤销 · 可导出
         </p>
       </header>
 
@@ -458,7 +506,17 @@ export default function App() {
 
           {versionDiff && <VersionDiffPanel diff={versionDiff} />}
 
-          <div className="step">4. 条款裁撤（可选）：勾选条款 → 分析影响 → 替代引用 → 预览确认</div>
+          <div className="step">4. 条款摘录（可选，只读）：勾选起点条款 → 沿引用递归收齐 → 复制纯文本</div>
+          <ExcerptPanel
+            analysis={analysis}
+            selected={excerptSelected}
+            onSelectChange={changeExcerptSelection}
+            result={excerptResult}
+            loading={loading}
+            onGenerate={doExcerpt}
+          />
+
+          <div className="step">5. 条款裁撤（可选）：勾选条款 → 分析影响 → 替代引用 → 预览确认</div>
           <RemovalPanel
             analysis={analysis}
             selected={removeSelected}
@@ -507,7 +565,7 @@ export default function App() {
             </section>
           )}
 
-          <div className="step">5. 改号映射（可选）</div>
+          <div className="step">6. 改号映射（可选）</div>
           <MappingEditor
             analysis={analysis}
             rows={rows}
@@ -536,7 +594,7 @@ export default function App() {
             </section>
           )}
 
-          <div className="step">6. 撤销 / 导出</div>
+          <div className="step">7. 撤销 / 导出</div>
           <section className="card final-bar">
             <button type="button" className="btn" onClick={doUndo} disabled={loading}>
               ↩ 撤销最近一次操作（改号 / 裁撤）

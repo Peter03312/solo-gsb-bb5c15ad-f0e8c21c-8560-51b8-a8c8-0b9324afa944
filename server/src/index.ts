@@ -21,6 +21,7 @@ import {
   type RemovalConflict,
   type RemovalReplacement,
 } from './removal';
+import { buildExcerpt, normalizeExcerptRequest, type ExcerptConflict } from './excerpt';
 import { diffVersions } from './diff';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -190,8 +191,36 @@ app.post('/api/documents/:id/renumber/commit', (req, res) => {
   });
 });
 
-// ---------- 条款裁撤 ----------
+// ---------- 条款摘录（只读） ----------
 
+// 勾选一个或多个条款作为摘录起点，沿“第X条”引用递归收齐所需条款，
+// 生成可复制的纯文本摘录；只读：不修改文档正文、不产生撤销历史。
+app.post('/api/documents/:id/excerpt', (req, res) => {
+  const id = Number(req.params.id);
+  const doc = requireDoc(res, id);
+  if (!doc) return;
+  const { numbers, errors } = normalizeExcerptRequest(
+    (req.body ?? {}) as { numbers?: unknown },
+  );
+  if (errors.length > 0) {
+    return fail(res, 409, 'EXCERPT_REJECTED', '摘录请求未通过校验，未生成摘录。', {
+      conflicts: errors,
+    });
+  }
+  const result = buildExcerpt(doc.content, numbers);
+  if (!result.ok) {
+    const conflicts: ExcerptConflict[] = result.conflicts ?? [];
+    return fail(res, 409, 'EXCERPT_CONFLICT', '条款摘录存在冲突，未生成摘录。', { conflicts });
+  }
+  res.json({
+    roots: result.roots,
+    clauseCount: result.clauses!.length,
+    clauses: result.clauses,
+    text: result.text,
+  });
+});
+
+// ---------- 条款裁撤 ----------
 // 影响分析（只读）：按标题边界识别区块、构建引用图，
 // 返回直接引用待删条款的位置与沿引用链传递受影响的条款。
 app.post('/api/documents/:id/removal/impact', (req, res) => {
